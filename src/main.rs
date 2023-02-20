@@ -1,172 +1,279 @@
 
-use std::{io::{BufReader, BufRead}, fs::File, collections::{VecDeque, HashMap, HashSet}};
-use ndarray::{Array2};
+use std::{io::{BufReader, BufRead}, fs::File, collections::{VecDeque, HashMap, HashSet}, num};
+use regex::Regex;
 
 const BACKSPACE: char = 8u8 as char;
 
-struct BoulderField {
-    field: Array2<u32>,
-    depth: usize
+const MaxTime: usize = 24;
+
+#[derive(Debug, Clone, PartialEq)]
+enum Decision {
+    BuildOreRobot,
+    BuildClayRobot,
+    BuildObsidianRobot,
+    BuildGeodeRobot
 }
 
-impl BoulderField {
 
-    fn get(&self, x: usize, y: usize, z: usize) -> bool {
-        self.field[[x, y]] & (1 << z) != 0
+#[derive(Debug)]
+struct Blueprint {
+    cost_ore_robot: usize,
+    cost_clay_robot: usize,
+    cost_obsidian_robot: (usize, usize),
+    cost_geode_robot: (usize, usize)
+}
+
+#[derive(Debug, Clone)]
+struct StockPile {
+    ore: usize,
+    clay: usize,
+    obsidian: usize,
+    geode: usize
+}
+
+#[derive(Debug, Clone)]
+struct WorkForce {
+    ore_robots: usize,
+    clay_robots: usize,
+    obsidian_robots: usize,
+    geode_robots: usize
+}
+
+#[derive(Debug, Clone)]
+struct WalkState {
+    time: usize,
+    stockpile: StockPile,
+    workforce: WorkForce,
+    decissions: Vec<Decision>
+}
+
+fn simulate(blueprint: &Blueprint) -> usize {
+
+    let stockpile = StockPile{ore: 0, clay: 0, obsidian: 0, geode: 0};
+    let workforce = WorkForce{ore_robots: 1, clay_robots: 0, obsidian_robots: 0, geode_robots: 0};
+    let time: usize = 0;
+
+    let init_state = WalkState { time: time, stockpile, workforce, decissions: Vec::new() };
+    let initial_options = calculate_next_decision_point(&init_state, &blueprint);
+
+    let mut Q: VecDeque<(WalkState, usize, Decision)>  = VecDeque::new();
+
+    for o in initial_options {
+        Q.push_back((init_state.clone(), o.0, o.1));
     }
+    
+    let mut best_result = 0;
 
-    fn set_occupied(&mut self, x: usize, y: usize, z: usize) {
-        self.field[[x, y]] |= 1 << z;
-    }
+    while !Q.is_empty() {
 
-    fn set_unoccupied(&mut self, x: usize, y: usize, z: usize) {
-        self.field[[x, y]] &= !(1 << z);
-    }
+        let (previous_state, time_delta, decission) = Q.pop_front().unwrap();
 
-    fn get_number_of_neighbours(&self, x: usize, y: usize, z: usize) -> usize {
+        let current_state = tick(previous_state, time_delta, decission, blueprint);
 
-        let mut res = 0;
+        let options = calculate_next_decision_point(&current_state, &blueprint);
 
-        if x + 1 < self.field.dim().0 && self.get(x + 1, y, z) {
-            res += 1;
-        }
-        if x > 0 && self.get(x - 1, y, z) {
-            res += 1;
-        }
+        for o in options {
 
-        if y + 1 < self.field.dim().1 && self.get(x, y + 1, z) {
-            res += 1;
-        }
-        if y > 0 && self.get(x, y - 1, z) {
-            res += 1;
-        }
+            if current_state.time + o.0 >= MaxTime {
+                let result_candidate = current_state.stockpile.geode + (MaxTime - current_state.time) * current_state.workforce.geode_robots;
 
-        if z + 1 < self.depth && self.get(x, y, z + 1) {
-            res += 1;
-        }
-        if z > 0 && self.get(x, y, z - 1) {
-            res += 1;
-        }
-
-        return res;
-
-    }
-
-    fn filter_cavities(&mut self, start: (usize, usize, usize)) {
-
-        let mut Q = HashSet::new();
-        Q.insert(start);
-        let mut empty_spaces: HashSet<(usize, usize, usize)> = HashSet::new();
-        let mut filled_spaces: HashSet<(usize, usize, usize)> = HashSet::new();
-        
-
-        while !Q.is_empty() {
-
-            let (x, y, z) = &Q.iter().next().unwrap().clone();
-            Q.remove(&(*x, *y, *z));
-
-            if !self.get(*x, *y, *z) {
-                
-                if x + 1 < self.field.dim().0 && !empty_spaces.contains(&(x + 1, *y, *z)) && !filled_spaces.contains(&(x + 1, *y, *z)) {
-                    Q.insert((x + 1, *y, *z));
+                if result_candidate > best_result {
+                    best_result = result_candidate;
+                    println!("Found better solution: {}", best_result);
                 }
-                if *x > 0 && !empty_spaces.contains(&(x - 1, *y, *z)) && !filled_spaces.contains(&(x - 1, *y, *z)) {
-                    Q.insert((x - 1, *y, *z));
-                }
-        
-                if y + 1 < self.field.dim().1 && !empty_spaces.contains(&(*x, y + 1, *z)) && !filled_spaces.contains(&(*x, y + 1, *z)) {
-                    Q.insert((*x, y + 1, *z));
-                }
-                if *y > 0 && !empty_spaces.contains(&(*x, y - 1, *z)) && !filled_spaces.contains(&(*x, y - 1, *z)) {
-                    Q.insert((*x, y - 1, *z));
-                }
-        
-                if z + 1 < self.depth && !empty_spaces.contains(&(*x, *y, z + 1)) && !filled_spaces.contains(&(*x, *y, z + 1)) {
-                    Q.insert((*x, *y, z + 1));
-                }
-                if *z > 0 && !empty_spaces.contains(&(*x, *y, z - 1)) && !filled_spaces.contains(&(*x, *y, z - 1)) {
-                    Q.insert((*x, *y, z - 1));
-                }
-                
-                empty_spaces.insert((*x, *y, *z));
-            } else{
-                filled_spaces.insert((*x, *y, *z));
-            }
-        }
-
-        for row in 0..self.field.dim().0 {
-            for column in 0..self.field.dim().1 {
-
-                let mut strip = self.field[[row, column]];
-
-                for z in 0..self.depth {
-                    if !self.get(row, column, z) && !empty_spaces.contains(&(row, column, z)) {
-                        strip |= 1 << z;
-                    }
-                }
-
-                self.field[[row, column]] = strip;
+            } else {
+                Q.push_back((current_state.clone(), o.0, o.1));
             }
         }
     }
 
-    fn calculate_boundary_area(&self) -> usize{
+    best_result
+}
 
-        let mut res = 0;
+fn tick(previous_state: WalkState, time_delta: usize, decission: Decision, blueprint: &Blueprint) -> WalkState {
 
-        for row in 0..self.field.dim().0 {
-            for column in 0..self.field.dim().1 {
-                for z in 0..self.depth {
-                    if self.get(row, column, z) {
-                        res += 6;
-                        res -= self.get_number_of_neighbours(row, column, z);
-                    }
-                }
-            }
+    let mut current_state = previous_state.clone();
+
+    current_state.stockpile.ore += current_state.workforce.ore_robots * time_delta;
+    current_state.stockpile.clay += current_state.workforce.clay_robots * time_delta;
+    current_state.stockpile.obsidian += current_state.workforce.obsidian_robots * time_delta;
+    current_state.stockpile.geode += current_state.workforce.geode_robots * time_delta;
+    
+    current_state.time += time_delta;
+
+    match decission {
+        Decision::BuildOreRobot => {
+            current_state.stockpile.ore += current_state.workforce.ore_robots;
+            current_state.stockpile.clay += current_state.workforce.clay_robots;
+            current_state.stockpile.obsidian += current_state.workforce.obsidian_robots;
+            current_state.stockpile.geode += current_state.workforce.geode_robots;
+
+            current_state.time += 1;
+
+            current_state.stockpile.ore -= blueprint.cost_ore_robot;
+
+            current_state.workforce.ore_robots += 1;
+        },
+        Decision::BuildClayRobot => {
+            current_state.stockpile.ore += current_state.workforce.ore_robots;
+            current_state.stockpile.clay += current_state.workforce.clay_robots;
+            current_state.stockpile.obsidian += current_state.workforce.obsidian_robots;
+            current_state.stockpile.geode += current_state.workforce.geode_robots;
+
+            current_state.time += 1;
+
+            current_state.stockpile.ore -= blueprint.cost_clay_robot;
+
+            current_state.workforce.clay_robots += 1;
+        },
+        Decision::BuildObsidianRobot => {
+            current_state.stockpile.ore += current_state.workforce.ore_robots;
+            current_state.stockpile.clay += current_state.workforce.clay_robots;
+            current_state.stockpile.obsidian += current_state.workforce.obsidian_robots;
+            current_state.stockpile.geode += current_state.workforce.geode_robots;
+
+            current_state.time += 1;
+
+            current_state.stockpile.ore -= blueprint.cost_obsidian_robot.0;
+            current_state.stockpile.clay -= blueprint.cost_obsidian_robot.1;
+
+            current_state.workforce.obsidian_robots += 1;
+        },
+        Decision::BuildGeodeRobot => {
+            current_state.stockpile.ore += current_state.workforce.ore_robots;
+            current_state.stockpile.clay += current_state.workforce.clay_robots;
+            current_state.stockpile.obsidian += current_state.workforce.obsidian_robots;
+            current_state.stockpile.geode += current_state.workforce.geode_robots;
+
+            current_state.time += 1;
+
+            current_state.stockpile.ore -= blueprint.cost_geode_robot.0;
+            current_state.stockpile.obsidian -= blueprint.cost_geode_robot.1;
+
+            current_state.workforce.geode_robots += 1;
         }
-
-        res
     }
+
+    current_state.decissions.push(decission);
+
+    return current_state;
+
+}
+
+fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -> Vec<(usize, Decision)> {
+
+    let mut decissions = Vec::new();
+    let mut time_delta = 0;
+    let mut novel_decissions = Vec::new();
+
+    if walkstate.stockpile.ore < blueprint.cost_ore_robot {
+
+        let mut f = (blueprint.cost_ore_robot - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
+        f += ((blueprint.cost_ore_robot - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+
+        time_delta = f;
+        novel_decissions.push((f, Decision::BuildOreRobot));
+    } else {
+        decissions.push((0, Decision::BuildOreRobot));
+    }
+
+    if walkstate.stockpile.ore < blueprint.cost_clay_robot {
+
+        let mut f = (blueprint.cost_clay_robot - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
+        f += ((blueprint.cost_clay_robot - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+
+        novel_decissions.push((f, Decision::BuildClayRobot));
+
+    } else {
+        decissions.push((0, Decision::BuildClayRobot));
+    }
+
+    if walkstate.workforce.clay_robots > 0 {
+        if walkstate.stockpile.ore < blueprint.cost_obsidian_robot.0 || walkstate.stockpile.clay < blueprint.cost_obsidian_robot.1 {
+
+            let mut f = 0;
+            let mut g = 0;
+    
+            if walkstate.stockpile.ore < blueprint.cost_obsidian_robot.0 {
+                f = (blueprint.cost_obsidian_robot.0 - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
+                f += ((blueprint.cost_obsidian_robot.0 - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+            }
+    
+            if walkstate.stockpile.clay < blueprint.cost_obsidian_robot.1 {
+                g = (blueprint.cost_obsidian_robot.1 - walkstate.stockpile.clay) / walkstate.workforce.clay_robots;
+                g += ((blueprint.cost_obsidian_robot.1 - walkstate.stockpile.clay) % walkstate.workforce.clay_robots > 0) as usize;
+            }
+    
+            let h = std::cmp::max(f,g);
+
+            novel_decissions.push((h, Decision::BuildObsidianRobot));
+        } else {
+            decissions.push((0, Decision::BuildObsidianRobot));
+        }
+    } 
+
+    if walkstate.workforce.obsidian_robots > 0 {
+        if walkstate.stockpile.ore < blueprint.cost_geode_robot.0 || walkstate.stockpile.obsidian < blueprint.cost_geode_robot.1 {
+
+            let mut f = 0;
+            let mut g = 0;
+    
+            if walkstate.stockpile.ore < blueprint.cost_geode_robot.0 {
+                f = (blueprint.cost_geode_robot.0 - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
+                f += ((blueprint.cost_geode_robot.0 - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+            }
+    
+            if walkstate.stockpile.obsidian < blueprint.cost_geode_robot.1 {
+                g = (blueprint.cost_geode_robot.1 - walkstate.stockpile.obsidian) / walkstate.workforce.obsidian_robots;
+                g += ((blueprint.cost_geode_robot.1 - walkstate.stockpile.obsidian) % walkstate.workforce.obsidian_robots > 0) as usize;
+            }
+    
+            let h = std::cmp::max(f,g);
+    
+            novel_decissions.push((h, Decision::BuildGeodeRobot));
+        } else {
+            decissions.push((0, Decision::BuildGeodeRobot));
+        }
+    } 
+
+    for n in novel_decissions {
+        decissions.push(n);
+    }
+
+    return decissions;
 }
 
 fn main() {
 
-    let reader = BufReader::new(File::open("input.txt").unwrap());
+    let reader = BufReader::new(File::open("test_input.txt").unwrap());
 
-    let mut x_max = 0;
-    let mut y_max = 0;
-    let mut z_max = 0;
-    
-    for line in reader.lines().map(|l| l.unwrap()) {
+    let re = Regex::new(r"Blueprint (\d+): Each ore robot costs (\d+) ore. Each clay robot costs (\d+) ore. Each obsidian robot costs (\d+) ore and (\d+) clay. Each geode robot costs (\d+) ore and (\d+) obsidian.").unwrap();
 
-        for (i, coord) in line.split(',').enumerate() {
-            if i == 0 {
-                x_max = std::cmp::max(x_max, coord.parse::<usize>().unwrap());
-            } else if i == 1 {
-                y_max = std::cmp::max(y_max, coord.parse::<usize>().unwrap());
-            } else {
-                z_max = std::cmp::max(z_max, coord.parse::<usize>().unwrap());
-            }
-        }
-    }
-
-    let reader = BufReader::new(File::open("input.txt").unwrap());
-
-    println!("x_max {} y_max {} z_max {}", x_max, y_max, z_max);
-
-    let mut field = BoulderField{field: Array2::zeros((x_max + 3, y_max + 3)), depth: z_max + 3};
+    let mut blueprints = vec![];
 
     for line in reader.lines().map(|l| l.unwrap()) {
 
-        let x = line.split(',').nth(0).unwrap().parse::<usize>().unwrap();
-        let y = line.split(',').nth(1).unwrap().parse::<usize>().unwrap();
-        let z = line.split(',').nth(2).unwrap().parse::<usize>().unwrap();
+        let numbers: Vec<usize> = re.captures_iter(
+            line.as_str()).next().unwrap().iter().map(
+                |cap| cap.unwrap().parse::<usize>().unwrap_or(0)).collect();
 
-        field.set_occupied(x + 1, y + 1, z + 1);
+        let b = Blueprint{
+            cost_ore_robot: numbers[2],
+            cost_clay_robot: numbers[3],
+            cost_obsidian_robot: (numbers[4], numbers[5]),
+            cost_geode_robot: (numbers[6], numbers[7])};
+        
+        blueprints.push(b);
     }
 
-    field.filter_cavities((0, 0, 0));
+    let mut res = 0;
 
-    println!("number_of_exposed_squares {}", field.calculate_boundary_area());
+    for (i, blueprint) in blueprints.iter().enumerate() {
+        println!("blueprint {} {:?}", i, blueprint);
+
+        res += i * simulate(blueprint);
+    }
+
+    println!("final quantity {}", res);
    
 }
