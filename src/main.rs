@@ -4,7 +4,7 @@ use regex::Regex;
 
 const BACKSPACE: char = 8u8 as char;
 
-const MaxTime: usize = 24;
+const MaxTime: u8 = 24;
 
 #[derive(Debug, Clone, PartialEq)]
 enum Decision {
@@ -17,46 +17,45 @@ enum Decision {
 
 #[derive(Debug)]
 struct Blueprint {
-    cost_ore_robot: usize,
-    cost_clay_robot: usize,
-    cost_obsidian_robot: (usize, usize),
-    cost_geode_robot: (usize, usize)
+    cost_ore_robot: u8,
+    cost_clay_robot: u8,
+    cost_obsidian_robot: (u8, u8),
+    cost_geode_robot: (u8, u8)
 }
 
 #[derive(Debug, Clone)]
 struct StockPile {
-    ore: usize,
-    clay: usize,
-    obsidian: usize,
-    geode: usize
+    ore: u8,
+    clay: u8,
+    obsidian: u8,
+    geode: u8
 }
 
 #[derive(Debug, Clone)]
 struct WorkForce {
-    ore_robots: usize,
-    clay_robots: usize,
-    obsidian_robots: usize,
-    geode_robots: usize
+    ore_robots: u8,
+    clay_robots: u8,
+    obsidian_robots: u8,
+    geode_robots: u8
 }
 
 #[derive(Debug, Clone)]
 struct WalkState {
-    time: usize,
+    time: u8,
     stockpile: StockPile,
-    workforce: WorkForce,
-    decissions: Vec<Decision>
+    workforce: WorkForce
 }
 
-fn simulate(blueprint: &Blueprint) -> usize {
+fn simulate(blueprint: &Blueprint) -> u8 {
 
     let stockpile = StockPile{ore: 0, clay: 0, obsidian: 0, geode: 0};
     let workforce = WorkForce{ore_robots: 1, clay_robots: 0, obsidian_robots: 0, geode_robots: 0};
-    let time: usize = 0;
+    let time: u8 = 0;
 
-    let init_state = WalkState { time: time, stockpile, workforce, decissions: Vec::new() };
+    let init_state = WalkState { time: time, stockpile, workforce };
     let initial_options = calculate_next_decision_point(&init_state, &blueprint);
 
-    let mut Q: VecDeque<(WalkState, usize, Decision)>  = VecDeque::new();
+    let mut Q: VecDeque<(WalkState, u8, Decision)>  = VecDeque::new();
 
     for o in initial_options {
         Q.push_back((init_state.clone(), o.0, o.1));
@@ -90,7 +89,7 @@ fn simulate(blueprint: &Blueprint) -> usize {
     best_result
 }
 
-fn tick(previous_state: WalkState, time_delta: usize, decission: Decision, blueprint: &Blueprint) -> WalkState {
+fn tick(previous_state: WalkState, time_delta: u8, decission: Decision, blueprint: &Blueprint) -> WalkState {
 
     let mut current_state = previous_state.clone();
 
@@ -154,13 +153,11 @@ fn tick(previous_state: WalkState, time_delta: usize, decission: Decision, bluep
         }
     }
 
-    current_state.decissions.push(decission);
-
     return current_state;
 
 }
 
-fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -> Vec<(usize, Decision)> {
+fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -> Vec<(u8, Decision)> {
 
     let mut decissions = Vec::new();
     let mut time_delta = 0;
@@ -169,7 +166,7 @@ fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -
     if walkstate.stockpile.ore < blueprint.cost_ore_robot {
 
         let mut f = (blueprint.cost_ore_robot - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
-        f += ((blueprint.cost_ore_robot - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+        f += ((blueprint.cost_ore_robot - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as u8;
 
         time_delta = f;
         novel_decissions.push((f, Decision::BuildOreRobot));
@@ -180,7 +177,7 @@ fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -
     if walkstate.stockpile.ore < blueprint.cost_clay_robot {
 
         let mut f = (blueprint.cost_clay_robot - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
-        f += ((blueprint.cost_clay_robot - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+        f += ((blueprint.cost_clay_robot - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as u8;
 
         novel_decissions.push((f, Decision::BuildClayRobot));
 
@@ -196,12 +193,12 @@ fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -
     
             if walkstate.stockpile.ore < blueprint.cost_obsidian_robot.0 {
                 f = (blueprint.cost_obsidian_robot.0 - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
-                f += ((blueprint.cost_obsidian_robot.0 - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+                f += ((blueprint.cost_obsidian_robot.0 - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as u8;
             }
     
             if walkstate.stockpile.clay < blueprint.cost_obsidian_robot.1 {
                 g = (blueprint.cost_obsidian_robot.1 - walkstate.stockpile.clay) / walkstate.workforce.clay_robots;
-                g += ((blueprint.cost_obsidian_robot.1 - walkstate.stockpile.clay) % walkstate.workforce.clay_robots > 0) as usize;
+                g += ((blueprint.cost_obsidian_robot.1 - walkstate.stockpile.clay) % walkstate.workforce.clay_robots > 0) as u8;
             }
     
             let h = std::cmp::max(f,g);
@@ -220,12 +217,12 @@ fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -
     
             if walkstate.stockpile.ore < blueprint.cost_geode_robot.0 {
                 f = (blueprint.cost_geode_robot.0 - walkstate.stockpile.ore) / walkstate.workforce.ore_robots;
-                f += ((blueprint.cost_geode_robot.0 - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as usize;
+                f += ((blueprint.cost_geode_robot.0 - walkstate.stockpile.ore) % walkstate.workforce.ore_robots > 0) as u8;
             }
     
             if walkstate.stockpile.obsidian < blueprint.cost_geode_robot.1 {
                 g = (blueprint.cost_geode_robot.1 - walkstate.stockpile.obsidian) / walkstate.workforce.obsidian_robots;
-                g += ((blueprint.cost_geode_robot.1 - walkstate.stockpile.obsidian) % walkstate.workforce.obsidian_robots > 0) as usize;
+                g += ((blueprint.cost_geode_robot.1 - walkstate.stockpile.obsidian) % walkstate.workforce.obsidian_robots > 0) as u8;
             }
     
             let h = std::cmp::max(f,g);
@@ -245,7 +242,7 @@ fn calculate_next_decision_point(walkstate: &WalkState, blueprint: &Blueprint) -
 
 fn main() {
 
-    let reader = BufReader::new(File::open("test_input.txt").unwrap());
+    let reader = BufReader::new(File::open("input.txt").unwrap());
 
     let re = Regex::new(r"Blueprint (\d+): Each ore robot costs (\d+) ore. Each clay robot costs (\d+) ore. Each obsidian robot costs (\d+) ore and (\d+) clay. Each geode robot costs (\d+) ore and (\d+) obsidian.").unwrap();
 
@@ -253,9 +250,9 @@ fn main() {
 
     for line in reader.lines().map(|l| l.unwrap()) {
 
-        let numbers: Vec<usize> = re.captures_iter(
+        let numbers: Vec<u8> = re.captures_iter(
             line.as_str()).next().unwrap().iter().map(
-                |cap| cap.unwrap().parse::<usize>().unwrap_or(0)).collect();
+                |cap| cap.unwrap().parse::<u8>().unwrap_or(0)).collect();
 
         let b = Blueprint{
             cost_ore_robot: numbers[2],
@@ -271,7 +268,7 @@ fn main() {
     for (i, blueprint) in blueprints.iter().enumerate() {
         println!("blueprint {} {:?}", i, blueprint);
 
-        res += i * simulate(blueprint);
+        res += (i + 1) * simulate(blueprint) as usize;
     }
 
     println!("final quantity {}", res);
